@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CharacterType {
+  ZOMBIE
+  ROBOT
+}
+
+model Character {
+  id       Int           @id @default(autoincrement())
+  name     String
+  type     CharacterType
+  health   Int
+  attack   Int
+  defense  Int
+  speed    Int
+
+  battlesAsCharacter1 Battle[] @relation("BattleCharacter1")
+  battlesAsCharacter2 Battle[] @relation("BattleCharacter2")
+  battlesWon          Battle[] @relation("BattleWinner")
+}
+
+model Battle {
+  id           Int       @id @default(autoincrement())
+  character1Id Int
+  character2Id Int
+  winnerId     Int
+  turns        Int
+
+  character1 Character @relation("BattleCharacter1", fields: [character1Id], references: [id])
+  character2 Character @relation("BattleCharacter2", fields: [character2Id], references: [id])
+  winner     Character @relation("BattleWinner", fields: [winnerId], references: [id])
+}
