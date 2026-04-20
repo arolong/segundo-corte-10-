@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 
 import { simulateBattle } from "@/lib/battle";
@@ -30,6 +31,8 @@ type BattleWithCharacters = {
 
 type SearchParams = {
   type?: string;
+  notice?: string;
+  scope?: string;
 };
 
 async function resolveSearchParams(
@@ -38,9 +41,18 @@ async function resolveSearchParams(
   return searchParams ? await searchParams : {};
 }
 
+function buildRedirect(returnTo: string | null, notice: string, scope: string) {
+  const basePath = returnTo && returnTo.startsWith("?") ? `/${returnTo}` : "/";
+  const url = new URL(basePath, "http://localhost");
+  url.searchParams.set("notice", notice);
+  url.searchParams.set("scope", scope);
+  return `${url.pathname}${url.search}`;
+}
+
 async function createCharacter(formData: FormData) {
   "use server";
 
+  const returnTo = String(formData.get("returnTo") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
   const type = String(formData.get("type") ?? "").toUpperCase();
   const health = Number(formData.get("health"));
@@ -53,7 +65,7 @@ async function createCharacter(formData: FormData) {
   const areStatsValid = stats.every((value) => Number.isFinite(value) && value > 0);
 
   if (!name || !isValidType || !areStatsValid) {
-    return;
+    redirect(buildRedirect(returnTo, "invalid", "character"));
   }
 
   await prisma.character.create({
@@ -68,20 +80,22 @@ async function createCharacter(formData: FormData) {
   });
 
   revalidatePath("/");
+  redirect(buildRedirect(returnTo, "created", "character"));
 }
 
 async function runBattle(formData: FormData) {
   "use server";
 
+  const returnTo = String(formData.get("returnTo") ?? "").trim();
   const character1Id = Number(formData.get("character1"));
   const character2Id = Number(formData.get("character2"));
 
   if (!Number.isFinite(character1Id) || !Number.isFinite(character2Id)) {
-    return;
+    redirect(buildRedirect(returnTo, "invalid", "battle"));
   }
 
   if (character1Id === character2Id) {
-    return;
+    redirect(buildRedirect(returnTo, "duplicate", "battle"));
   }
 
   const fighters: Character[] = await prisma.character.findMany({
@@ -89,14 +103,14 @@ async function runBattle(formData: FormData) {
   });
 
   if (fighters.length !== 2) {
-    return;
+    redirect(buildRedirect(returnTo, "missing", "battle"));
   }
 
   const fighterA = fighters.find((fighter) => fighter.id === character1Id);
   const fighterB = fighters.find((fighter) => fighter.id === character2Id);
 
   if (!fighterA || !fighterB) {
-    return;
+    redirect(buildRedirect(returnTo, "missing", "battle"));
   }
 
   const outcome = simulateBattle(fighterA, fighterB);
@@ -111,6 +125,7 @@ async function runBattle(formData: FormData) {
   });
 
   revalidatePath("/");
+  redirect(buildRedirect(returnTo, "done", "battle"));
 }
 
 export default async function Home({
@@ -118,12 +133,14 @@ export default async function Home({
 }: {
   searchParams?: SearchParams | Promise<SearchParams>;
 }) {
-  const { type } = await resolveSearchParams(searchParams);
+  const { type, notice, scope } = await resolveSearchParams(searchParams);
   const normalizedType = type?.toUpperCase();
   const selectedType =
     normalizedType === "ZOMBIE" || normalizedType === "ROBOT"
       ? normalizedType
       : undefined;
+
+  const returnTo = selectedType ? `?type=${selectedType}` : "";
 
   const characters: Character[] = await prisma.character.findMany({
     where: selectedType ? { type: selectedType } : undefined,
@@ -225,6 +242,20 @@ export default async function Home({
             </p>
           </div>
           <form action={createCharacter} className="grid gap-4 pt-6">
+            <input type="hidden" name="returnTo" value={returnTo} />
+            {scope === "character" && notice ? (
+              <div
+                className={`rounded-2xl border px-4 py-3 text-sm ${
+                  notice === "created"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                }`}
+              >
+                {notice === "created"
+                  ? "Personaje creado correctamente."
+                  : "Revisa los datos, todos los campos son obligatorios."}
+              </div>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-2 text-sm font-medium text-zinc-700">
                 Nombre
@@ -317,6 +348,22 @@ export default async function Home({
               </p>
             ) : (
               <form action={runBattle} className="grid gap-4 pt-6">
+                <input type="hidden" name="returnTo" value={returnTo} />
+                {scope === "battle" && notice ? (
+                  <div
+                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                      notice === "done"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-amber-200 bg-amber-50 text-amber-700"
+                    }`}
+                  >
+                    {notice === "done"
+                      ? "Batalla registrada correctamente."
+                      : notice === "duplicate"
+                        ? "Selecciona dos personajes diferentes."
+                        : "No se pudo registrar la batalla, revisa la seleccion."}
+                  </div>
+                ) : null}
                 <label className="flex flex-col gap-2 text-sm font-medium text-zinc-700">
                   Personaje 1
                   <select
